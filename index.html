@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>神の足場 - ピクトさんを導け</title>
+<style>
+:root{--bg:#f1f5f9;--fg:#0f172a;--card:#fff;--ac:#2563eb;--mut:#64748b;--bd:#cbd5e1;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f172a;--fg:#f1f5f9;--card:#1e293b;--ac:#60a5fa;--mut:#94a3b8;--bd:#334155;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f172a;--fg:#f1f5f9;--card:#1e293b;--ac:#60a5fa;--mut:#94a3b8;--bd:#334155;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+.scene{display:none;max-width:960px;margin:0 auto;padding:12px}
+.scene.on{display:block}
+#title{text-align:center;padding-top:12vh}
+h1{font-size:clamp(28px,7vw,52px);margin:0 0 8px}
+.sub{color:var(--mut);margin-bottom:32px}
+button{font:inherit;cursor:pointer;border:1px solid var(--bd);background:var(--card);color:var(--fg);padding:8px 14px;border-radius:8px}
+button:hover{border-color:var(--ac)}
+button.pri{background:var(--ac);color:#fff;border-color:var(--ac)}
+button.big{font-size:22px;padding:12px 40px}
+button.on{outline:3px solid var(--ac)}
+button:disabled{opacity:.4;cursor:default}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:16px 0}
+#grid button{padding:16px 8px;text-align:center}
+#grid small{display:block;color:var(--mut)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
+.bar .sp{flex:1}
+#hud{font-weight:600}
+.wrap{position:relative}
+canvas{width:100%;display:block;border:1px solid var(--bd);border-radius:8px;touch-action:none;background:#e0f2fe}
+#msg{color:var(--mut);min-height:22px;font-size:14px}
+#ov{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.55);border-radius:8px}
+#ov.on{display:flex}
+#ov .box{background:var(--card);padding:24px 32px;border-radius:12px;text-align:center}
+#ov h2{font-size:40px;margin:0 0 6px}
+#ov p{color:var(--mut);margin:0 0 16px}
+#ov .bar{justify-content:center}
+</style></head><body>
+
+<div id="title" class="scene on">
+  <h1>神の足場</h1>
+  <div class="sub">足場を創造して、ピクトさんをゴールへ導け</div>
+  <button class="pri big" id="start">START</button>
+  <div style="margin-top:20px"><button id="theme">表示切替（ライト/ダーク）</button></div>
+</div>
+
+<div id="select" class="scene">
+  <div class="bar"><button id="selBack">← 戻る</button><b>ステージ選択</b></div>
+  <div id="grid"></div>
+</div>
+
+<div id="game" class="scene">
+  <div class="bar"><b id="sname"></b><span class="sp"></span><span id="hud"></span></div>
+  <div class="wrap">
+    <canvas id="cv" width="960" height="540"></canvas>
+    <div id="ov"><div class="box"><h2 id="ovT"></h2><p id="ovP"></p><div class="bar" id="ovB"></div></div></div>
+  </div>
+  <div id="msg"></div>
+  <div class="bar" id="tools"></div>
+  <div class="bar">
+    <button class="pri" id="go">▶ 開始</button>
+    <button id="retry">↺ リトライ</button>
+    <button id="spd">⏩ 倍速 ×1</button>
+    <button id="back">ステージ選択へ</button>
+    <button id="mute">🔊 音</button>
+  </div>
+</div>
+
+<script>
+const T=30,COLS=32,ROWS=18,PW=14,PH=26,SPEED=100,GRAV=1400,JV=620,STEP=31,BOOST=280;
+const OBJ={
+ plat:{n:'足場',w:2,h:1,cost:1,col:'#f59e0b'},
+ bridge:{n:'橋',w:5,h:1,cost:3,col:'#d97706'},
+ stairs:{n:'階段',w:3,h:3,cost:4,col:'#a16207'},
+ mover:{n:'動く足場',w:3,h:1,cost:3,col:'#0ea5e9',range:4},
+ vanish:{n:'消える足場',w:2,h:1,cost:1,col:'#a78bfa'},
+ jump:{n:'ジャンプ台',w:1,h:1,cost:3,col:'#ef4444'},
+ boost:{n:'加速パネル',w:3,h:1,cost:2,col:'#16a34a',lb:'＞＞＞'},
+ stop:{n:'停止パネル',w:2,h:1,cost:1,col:'#dc2626',lb:'停止'},
+ rev:{n:'反転パネル',w:1,h:1,cost:2,col:'#f59e0b',lb:'⇄'},
+ wall:{n:'壊れる壁',w:1,h:2,cost:0,col:'#92400e'},
+ switch:{n:'スイッチ',w:1,h:1,cost:0,col:'#0ea5e9',lb:'●'},
+ door:{n:'扉',w:1,h:2,cost:0,col:'#6366f1'},
+ warp:{n:'ワープ',w:1,h:1,cost:0,col:'#8b5cf6'}
+};
+const PNL={boost:1,stop:1,rev:1,switch:1,warp:1};
+const KC=['#0ea5e9','#dc2626','#f59e0b','#ec4899']; // 1=blue 2=red
+const vph=o=>(((G.t-(0.3*o.c-0.52)+0.28)%2)+2)%2; // vanish cycle: 2.0s, visible while <1.3
+// solids: [col,row,w,h] (tiles). start/goal: [col,row of the feet cell]
+const STAGES=[
+ {name:'はじめの一歩',start:[1,13],goal:[29,13],solids:[[0,14,10,4],[14,14,18,4]],cp:6,avail:{plat:3},time:0},
+ {name:'二つの穴',start:[1,13],goal:[29,13],solids:[[0,14,8,4],[13,14,6,4],[23,14,9,4]],cp:6,avail:{plat:4,bridge:2},time:0},
+ {name:'高い壁',start:[1,13],goal:[29,10],solids:[[0,14,8,4],[8,11,8,7],[20,11,12,7]],cp:6,avail:{stairs:1,plat:2},time:30},
+ {name:'限られた力',start:[1,13],goal:[29,13],solids:[[0,14,7,4],[14,14,18,4]],cp:4,avail:{plat:4,bridge:1,mover:1},time:40},
+ {name:'神の合わせ技',start:[1,13],goal:[29,9],solids:[[0,14,6,4],[10,14,6,4],[16,10,16,8]],cp:5,avail:{vanish:2,jump:1},time:40},
+ {name:'階段と穴',start:[1,13],goal:[29,10],solids:[[0,14,6,4],[10,14,3,4],[13,11,6,7],[23,11,9,7]],cp:8,avail:{plat:4,stairs:1},time:40},
+ {name:'消える足場',start:[1,13],goal:[29,13],solids:[[0,14,4,4],[16,14,16,4]],cp:6,avail:{vanish:6,bridge:1},time:40},
+ {name:'のぼれ！',start:[1,13],goal:[29,7],solids:[[0,14,6,4],[16,8,16,10]],cp:5,avail:{plat:3,vanish:3},time:40},
+ {name:'ジャンプ台の道',start:[1,13],goal:[29,5],solids:[[0,14,4,4],[6,14,4,4],[10,10,10,8],[20,6,12,12]],cp:7,avail:{plat:1,jump:2},time:40},
+ {name:'基礎の総まとめ',start:[1,13],goal:[29,6],solids:[[0,14,5,4],[10,14,4,4],[14,11,4,7],[22,11,3,7],[25,7,7,11]],cp:12,avail:{bridge:1,plat:4,vanish:3,stairs:1,jump:1,mover:1},time:60},
+ {name:'加速パネルの力',start:[1,13],goal:[29,13],solids:[[0,14,16,4],[22,14,10,4]],fix:[{type:'jump',c:15,r:13}],cp:3,avail:{boost:1},time:30},
+ {name:'助走をつけろ',start:[1,13],goal:[29,13],solids:[[0,14,8,4],[14,14,18,4]],cp:6,avail:{boost:1,jump:1,plat:2},time:30},
+ {name:'二段飛び',start:[1,13],goal:[29,13],solids:[[0,14,10,4],[15,14,8,4],[28,14,4,4]],fix:[{type:'jump',c:9,r:13},{type:'jump',c:22,r:13}],cp:4,avail:{boost:2},time:40},
+ {name:'着地のあと',start:[1,13],goal:[30,10],solids:[[0,14,12,4],[18,14,8,4],[26,11,6,7]],fix:[{type:'jump',c:11,r:13}],cp:6,avail:{boost:1,stairs:1},time:40},
+ {name:'総合練習①',start:[1,13],goal:[30,10],solids:[[0,14,9,4],[15,14,6,4],[21,11,4,7],[29,11,3,7]],cp:12,avail:{boost:1,jump:1,stairs:1,plat:2,vanish:2,bridge:1},time:60},
+ {name:'連続ジャンプ',start:[1,13],goal:[29,13],solids:[[0,14,6,4],[12,14,6,4],[24,14,8,4]],cp:10,avail:{boost:2,jump:2},time:40},
+ {name:'空への助走',start:[1,13],goal:[29,8],solids:[[0,14,9,4],[14,12,7,6],[25,9,7,9]],cp:10,avail:{boost:2,jump:2},time:40},
+ {name:'タイムアタック',start:[1,13],goal:[29,13],solids:[[0,14,8,4],[12,14,8,4],[24,14,8,4]],cp:10,avail:{plat:4,boost:4},time:6},
+ {name:'ジャンプの連鎖',start:[1,13],goal:[29,13],solids:[[0,14,8,4],[12,14,1,4],[18,14,1,4],[24,14,8,4]],fix:[{type:'jump',c:7,r:13},{type:'jump',c:12,r:13},{type:'jump',c:18,r:13}],cp:2,avail:{boost:1},time:30},
+ {name:'総合練習②',start:[1,13],goal:[31,10],solids:[[0,14,8,4],[12,14,7,4],[19,11,5,7],[30,11,2,7]],cp:11,avail:{plat:3,stairs:1,boost:1,jump:1,vanish:2},time:40},
+ {name:'三つの穴と空の道',start:[1,13],goal:[30,13],solids:[[0,14,6,4],[8,14,3,4],[13,14,3,4],[18,14,4,4],[28,14,4,4]],cp:10,avail:{vanish:3,boost:2,jump:1},time:30},
+ {name:'壊れる壁',start:[1,13],goal:[29,13],solids:[[0,14,32,4]],fix:[{type:'wall',c:16,r:12}],cp:2,avail:{boost:1},time:30},
+ {name:'待つ勇気',start:[1,13],goal:[29,13],solids:[[0,14,20,4],[22,14,10,4]],fix:[{type:'wall',c:14,r:12}],cp:4,avail:{boost:1,stop:1,vanish:1},time:40},
+ {name:'引き返す道',start:[24,13],goal:[2,13],solids:[[0,14,8,4],[14,14,18,4]],fix:[{type:'jump',c:14,r:13}],cp:4,avail:{rev:1,boost:1},time:30},
+ {name:'逆走の突破',start:[18,13],goal:[1,13],solids:[[0,14,32,4]],fix:[{type:'wall',c:3,r:12}],cp:4,avail:{rev:1,boost:1},time:30},
+ {name:'崖を飛び出せ',start:[1,4],goal:[30,10],solids:[[0,5,10,13],[15,14,9,4],[24,11,8,7]],cp:6,avail:{boost:1,stairs:1,plat:2},time:30},
+ {name:'天空への階段',start:[1,13],goal:[30,1],solids:[[0,14,10,4],[10,10,8,8],[18,6,8,12],[29,2,3,16]],cp:11,avail:{jump:3,boost:1},time:40},
+ {name:'ワープ越しの突破',start:[1,13],goal:[29,13],solids:[[0,14,32,4]],fix:[{type:'warp',c:10,r:13,k:1},{type:'warp',c:20,r:13,k:1},{type:'wall',c:21,r:12},{type:'wall',c:22,r:12}],cp:2,avail:{boost:1,plat:1},time:25},
+ {name:'空中ワープ連鎖',start:[1,13],goal:[29,13],solids:[[0,14,9,4],[26,14,6,4]],fix:[{type:'warp',c:8,r:13,k:1},{type:'warp',c:12,r:4,k:1},{type:'warp',c:16,r:8,k:2},{type:'warp',c:22,r:2,k:2}],cp:2,avail:{boost:1},time:20},
+ {name:'頂上決戦',start:[1,2],goal:[30,9],solids:[[0,3,6,15],[10,9,5,9],[18,14,6,4],[24,10,8,8]],cp:7,avail:{boost:2,jump:1,plat:2},time:40},
+ {name:'ジグザグ降り',start:[1,0],goal:[29,16],solids:[[0,1,26,1],[6,4,26,1],[0,12,16,1],[24,17,8,1]],cp:9,avail:{rev:2,boost:1,jump:1},time:45},
+ {name:'落ちるのが正解',start:[1,13],goal:[29,13],solids:[[0,14,10,4],[10,17,7,1],[17,14,15,4]],fix:[{type:'switch',c:12,r:16,k:1},{type:'door',c:20,r:12,k:1}],cp:6,avail:{jump:1,bridge:1,plat:2},time:30},
+ {name:'帰りの切符',start:[10,13],goal:[2,13],solids:[[0,14,12,4],[20,10,12,4]],fix:[{type:'warp',c:11,r:13,k:1},{type:'warp',c:20,r:9,k:1},{type:'wall',c:9,r:12},{type:'door',c:5,r:12,k:1},{type:'switch',c:26,r:9,k:1}],cp:4,avail:{rev:1,boost:1,plat:2},time:40},
+ {name:'折り返しの階段',start:[18,13],goal:[2,10],solids:[[0,14,32,4],[0,11,10,3]],fix:[{type:'wall',c:5,r:9}],cp:8,avail:{rev:1,stairs:1,boost:1,plat:2},time:16},
+ {name:'塔と大ジャンプ',start:[1,0],goal:[1,13],solids:[[0,1,26,1],[6,4,26,1],[0,7,26,1],[16,15,16,1],[0,17,8,1],[0,14,3,3]],fix:[{type:'wall',c:20,r:5}],cp:17,avail:{rev:3,boost:2,jump:1,stairs:1},time:45},
+ {name:'最初の鍵',start:[10,13],goal:[2,13],solids:[[0,14,32,4]],fix:[{type:'switch',c:24,r:13,k:1},{type:'door',c:5,r:12,k:1}],cp:2,avail:{rev:1,plat:1},time:25},
+ {name:'高台のスイッチ',start:[7,13],goal:[2,13],solids:[[0,14,32,4],[14,11,18,3]],fix:[{type:'switch',c:22,r:10,k:1},{type:'door',c:4,r:12,k:1}],cp:6,avail:{stairs:1,rev:1,plat:2},time:30},
+ {name:'跳んで押して戻る',start:[8,13],goal:[2,13],solids:[[0,14,32,4],[20,10,12,4]],fix:[{type:'switch',c:26,r:9,k:1},{type:'door',c:5,r:12,k:1}],cp:5,avail:{jump:1,rev:1,plat:2},time:30},
+ {name:'塔の扉',start:[1,0],goal:[29,16],solids:[[0,1,26,1],[6,4,26,1],[0,12,16,1],[24,17,8,1]],fix:[{type:'switch',c:28,r:3,k:1},{type:'door',c:9,r:2,k:1}],cp:9,avail:{rev:2,boost:1,jump:1},time:45},
+ {name:'開かずの塔',start:[1,0],goal:[2,16],solids:[[0,1,26,1],[6,4,26,1],[0,7,26,1],[16,15,16,1],[0,17,8,1]],fix:[{type:'wall',c:20,r:5},{type:'switch',c:28,r:3,k:1},{type:'door',c:22,r:13,k:1}],cp:13,avail:{rev:3,boost:2,jump:1},time:60},
+ {name:'赤と青の順番',start:[14,13],goal:[29,13],solids:[[0,14,32,4]],fix:[{type:'switch',c:22,r:13,k:1},{type:'door',c:8,r:12,k:1},{type:'switch',c:4,r:13,k:2},{type:'door',c:26,r:12,k:2}],cp:4,avail:{rev:2,plat:1},time:40},
+ {name:'跳んで戻って跳ぶ',start:[11,13],goal:[30,9],solids:[[0,14,32,4],[20,10,12,4]],fix:[{type:'switch',c:24,r:9,k:1},{type:'door',c:6,r:12,k:1},{type:'switch',c:3,r:13,k:2},{type:'door',c:28,r:8,k:2}],cp:7,avail:{jump:1,rev:2,plat:2},time:60},
+ {name:'塔の二つの鍵',start:[1,0],goal:[29,16],solids:[[0,1,26,1],[6,4,26,1],[0,12,16,1],[24,17,8,1]],fix:[{type:'switch',c:28,r:3,k:1},{type:'door',c:9,r:2,k:1},{type:'switch',c:1,r:11,k:2},{type:'door',c:8,r:10,k:2}],cp:9,avail:{rev:2,boost:1,jump:1},time:60},
+ {name:'階段と跳躍の順序',start:[13,13],goal:[30,10],solids:[[0,14,32,4],[22,11,10,3],[0,10,8,4]],fix:[{type:'switch',c:25,r:10,k:1},{type:'door',c:11,r:12,k:1},{type:'switch',c:3,r:9,k:2},{type:'door',c:28,r:9,k:2}],cp:11,avail:{stairs:1,jump:1,rev:2},time:50},
+ {name:'順序の極み',start:[1,0],goal:[2,16],solids:[[0,1,26,1],[6,4,26,1],[0,7,26,1],[16,15,16,1],[0,17,8,1]],fix:[{type:'wall',c:20,r:5},{type:'switch',c:28,r:3,k:1},{type:'door',c:9,r:2,k:1},{type:'switch',c:1,r:6,k:2},{type:'door',c:22,r:13,k:2}],cp:13,avail:{rev:3,boost:2,jump:1},time:60},
+ {name:'助走は別の場所で',start:[1,13],goal:[29,13],solids:[[0,14,12,4],[20,8,2,10],[27,14,5,4]],fix:[{type:'wall',c:9,r:12},{type:'warp',c:11,r:13,k:1},{type:'warp',c:20,r:7,k:1},{type:'jump',c:20,r:7}],cp:2,avail:{boost:1},time:25},
+ {name:'輪になる道',start:[26,13],goal:[25,13],solids:[[0,14,14,4],[18,14,14,4],[0,8,5,1],[7,8,3,1]],fix:[{type:'warp',c:28,r:13,k:1},{type:'warp',c:1,r:7,k:1},{type:'switch',c:8,r:7,k:1},{type:'door',c:24,r:12,k:1}],cp:3,avail:{plat:3},time:40},
+ {name:'時間を飛ぶ',start:[1,13],goal:[31,13],solids:[[0,14,4,4],[12,14,5,4],[25,14,4,4],[31,14,1,4]],fix:[{type:'warp',c:3,r:13,k:1},{type:'warp',c:12,r:13,k:1},{type:'warp',c:16,r:13,k:2},{type:'warp',c:25,r:13,k:2}],cp:3,avail:{stop:3,vanish:1},time:30},
+ {name:'ワープ砲',start:[1,13],goal:[30,10],solids:[[0,14,9,4],[18,14,8,4],[26,11,6,7]],fix:[{type:'warp',c:8,r:13,k:1},{type:'warp',c:12,r:3,k:1}],cp:6,avail:{boost:1,stairs:1},time:25},
+ {name:'創造の極致',start:[1,0],goal:[1,13],solids:[[0,1,6,1],[13,1,9,1],[24,1,2,1],[6,4,26,1],[0,7,26,1],[16,15,16,1],[0,17,8,1],[0,14,3,3]],fix:[{type:'wall',c:20,r:5},{type:'switch',c:28,r:3,k:1},{type:'door',c:9,r:2,k:1},{type:'switch',c:1,r:6,k:2},{type:'door',c:22,r:13,k:2},{type:'warp',c:4,r:0,k:1},{type:'warp',c:13,r:0,k:1}],cp:19,avail:{rev:3,boost:2,jump:1,stairs:1,stop:1,vanish:1},time:50}
+];
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d');
+function show(id){document.querySelectorAll('.scene').forEach(s=>s.classList.toggle('on',s.id===id))}
+let cleared={};try{cleared=JSON.parse(localStorage.getItem('pk_clear')||'{}')}catch(e){}
+function saveClear(){try{localStorage.setItem('pk_clear',JSON.stringify(cleared))}catch(e){}}
+
+// ---- sound ----
+let AC=null,muted=false;
+function ac(){if(!AC){try{AC=new(window.AudioContext||window.webkitAudioContext)()}catch(e){}}if(AC&&AC.state==='suspended')AC.resume();return AC}
+function beep(f,d=.1,type='square',v=.06,f2){if(muted)return;const a=ac();if(!a)return;const o=a.createOscillator(),g=a.createGain(),t=a.currentTime;o.type=type;o.frequency.setValueAtTime(f,t);if(f2)o.frequency.linearRampToValueAtTime(f2,t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(a.destination);o.start();o.stop(t+d)}
+const SFX={place:()=>beep(520,.08,'square',.06,780),remove:()=>beep(400,.1,'square',.05,200),jump:()=>beep(300,.25,'sine',.1,900),
+ clear:()=>[523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,.2,'triangle',.1),i*120)),fail:()=>beep(300,.5,'sawtooth',.07,80),
+ step:()=>beep(120,.04,'triangle',.04),vanish:()=>beep(700,.2,'sine',.05,200),ng:()=>beep(160,.1,'square',.04),move:()=>beep(90,.05,'sine',.03),brk:()=>beep(200,.25,'sawtooth',.09,50)};
+const mel=[262,330,392,330,294,349,440,349];let bi=0;
+setInterval(()=>{if(AC&&!muted&&!document.hidden)beep(mel[bi++%8]/2,.35,'sine',.025)},450);
+
+// ---- state ----
+let S=null,G=null;
+const FL=()=>!!(G&&G.p&&G.mode!=='build'&&G.p.dir<0); // after a reverse panel: arrows/stairs mirror
+const tilesOf=(type,c,r)=>{const d=OBJ[type];
+ if(type==='stairs')return FL()?[[c+2,r+2,1,1],[c+1,r+1,1,2],[c,r,1,3]]:[[c,r+2,1,1],[c+1,r+1,1,2],[c+2,r,1,3]];
+ if(type==='mover')return[[c,r,d.w+d.range,1]];
+ return[[c,r,d.w,d.h]]};
+const ov=(a,b)=>a[0]<b[0]+b[2]&&b[0]<a[0]+a[2]&&a[1]<b[1]+b[3]&&b[1]<a[1]+a[3];
+const hit=(p,s)=>p.x<s.x+s.w&&s.x<p.x+PW&&p.y<s.y+s.h&&s.y<p.y+PH;
+
+function openStage(i){
+ S=STAGES[i];
+ G={idx:i,placed:(S.fix||[]).map(f=>({...f,fixed:true,ox:0,po:0,dead:false,vt:null})),cp:S.cp,cnt:{...S.avail},sel:Object.keys(S.avail)[0],remove:false,mode:'build',hover:null,t:0};
+ resetRun();$('ov').classList.remove('on');
+ $('sname').textContent='STAGE '+(i+1)+'　'+S.name;
+ buildTools();show('game');setMsg('足場を選んで配置 → 「開始」でピクトさんが歩き出します');
+}
+function resetRun(){
+ G.t=0;G.mode='build';
+ G.p={x:S.start[0]*T+8,y:(S.start[1]+1)*T-PH,vy:0,on:true,ground:null,anim:0,stuck:0,sp:SPEED,dir:1,wait:0,lw:null};
+ for(const o of G.placed){o.dead=false;o.hid=false;o.used=false;o.ox=0;o.po=0;o.vt=null}
+ $('go').textContent='▶ 開始';
+}
+function buildTools(){
+ const el=$('tools');el.innerHTML='';
+ for(const k in S.avail){const b=document.createElement('button');b.dataset.k=k;
+  b.onclick=()=>{G.sel=k;G.remove=false;buildTools()};
+  b.className=(!G.remove&&G.sel===k)?'on':'';b.disabled=G.cnt[k]<=0;
+  b.textContent=`${OBJ[k].n}　${OBJ[k].cost}pt　残${G.cnt[k]}`;el.appendChild(b)}
+ const r=document.createElement('button');r.textContent='🗑 撤去';r.className=G.remove?'on':'';
+ r.onclick=()=>{G.remove=!G.remove;buildTools()};el.appendChild(r);
+}
+function setMsg(s){$('msg').textContent=s}
+
+// ---- placement ----
+function canPlace(type,c,r){
+ const d=OBJ[type];
+ if(G.cp<d.cost)return'創造ポイントが足りません';
+ if(G.cnt[type]<=0)return'使用数の上限です';
+ for(const t of tilesOf(type,c,r)){
+  if(t[0]<0||t[1]<0||t[0]+t[2]>COLS||t[1]+t[3]>ROWS)return'範囲外です';
+  for(const s of S.solids)if(ov(t,s))return'地形と重なっています';
+  for(const o of G.placed)for(const u of tilesOf(o.type,o.c,o.r))if(ov(t,u))return'他のオブジェクトと重なっています';
+  if(ov(t,[S.start[0],S.start[1],1,1])||ov(t,[S.goal[0],S.goal[1]-1,1,2]))return'開始・ゴール位置には置けません';
+ }
+ return'';
+}
+function cellAt(e){const r=cv.getBoundingClientRect();return[Math.floor((e.clientX-r.left)*cv.width/r.width/T),Math.floor((e.clientY-r.top)*cv.height/r.height/T)]}
+function anchor(col,row){const d=OBJ[G.sel];return[col-Math.floor(d.w/2),row-(d.h-1)]}
+function removeAt(col,row){
+ for(let i=G.placed.length-1;i>=0;i--){const o=G.placed[i],d=OBJ[o.type];if(o.fixed)continue;
+  const ts=o.type==='mover'?[[o.c,o.r,d.w,1]]:tilesOf(o.type,o.c,o.r);
+  if(ts.some(t=>ov([col,row,1,1],t))){G.placed.splice(i,1);G.cp+=d.cost;G.cnt[o.type]++;SFX.remove();buildTools();return true}}
+ return false;
+}
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('pointermove',e=>{if(!G)return;const[c,r]=cellAt(e);G.hover=[c,r]});
+cv.addEventListener('pointerleave',()=>{if(G)G.hover=null});
+cv.addEventListener('pointerdown',e=>{
+ if(!G||G.mode!=='build')return;ac();
+ const[col,row]=cellAt(e);G.hover=[col,row];
+ if(e.button===2||G.remove){if(!removeAt(col,row))SFX.ng();return}
+ if(removeAt(col,row))return;
+ const[c,r]=anchor(col,row),why=canPlace(G.sel,c,r);
+ if(why){setMsg('⚠ '+why);SFX.ng();return}
+ G.placed.push({type:G.sel,c,r,ox:0,po:0,dead:false,vt:null});
+ G.cp-=OBJ[G.sel].cost;G.cnt[G.sel]--;SFX.place();buildTools();setMsg('');
+});
+
+// ---- simulation ----
+function solids(){
+ const out=[];
+ for(const s of S.solids)out.push({x:s[0]*T,y:s[1]*T,w:s[2]*T,h:s[3]*T});
+ for(const o of G.placed){if(o.dead||o.hid)continue;const d=OBJ[o.type];
+  if(o.type==='stairs')for(const t of tilesOf('stairs',o.c,o.r))out.push({x:t[0]*T,y:t[1]*T,w:t[2]*T,h:t[3]*T,o});
+  else if(o.type==='jump')out.push({x:o.c*T,y:o.r*T+16,w:T,h:T-16,o});
+  else if(o.type==='wall'||o.type==='door')out.push({x:o.c*T,y:o.r*T,w:T,h:2*T,o});
+  else if(!PNL[o.type])out.push({x:o.c*T+o.ox,y:o.r*T,w:d.w*T,h:T,o});}
+ return out;
+}
+function end(ok,why){
+ if(G.mode!=='run')return;G.mode=ok?'clear':'fail';
+ if(ok){SFX.clear();cleared[G.idx]=1;saveClear()}else SFX.fail();
+ setTimeout(()=>showOv(ok,why),700);
+}
+function showOv(ok,why){
+ $('ovT').textContent=ok?'CLEAR!':'FAILED';$('ovP').textContent=ok?'ピクトさんはゴールに到達しました':why;
+ const b=$('ovB');b.innerHTML='';
+ const add=(t,f,c)=>{const x=document.createElement('button');x.textContent=t;x.onclick=f;if(c)x.className=c;b.appendChild(x)};
+ if(ok&&G.idx+1<STAGES.length)add('次のステージ',()=>openStage(G.idx+1),'pri');
+ add('リトライ',()=>openStage(G.idx),ok?'':'pri');add('ステージ選択へ',toSelect);
+ $('ov').classList.add('on');
+}
+function update(dt){
+ if(G.mode!=='run')return;
+ const p=G.p;G.t+=dt;
+ for(const o of G.placed){
+  if(o.type==='mover'){o.po=o.ox;o.ox=OBJ.mover.range*T*(1-Math.cos(1.1*G.t))/2}
+  if(o.type==='vanish')o.hid=vph(o)>=1.3;}
+ if(p.ground&&p.ground.type==='mover'&&!p.ground.dead)p.x+=p.ground.ox-p.ground.po;
+ let ss=solids(),blocked=false;
+ if(p.wait>0)p.wait-=dt;else p.x+=p.dir*p.sp*dt;if(p.x<0){p.x=0;blocked=true}if(p.x>960-PW){p.x=960-PW;blocked=true}
+ for(const s of ss)if(hit(p,s)){const rise=p.y+PH-s.y;
+  if(s.o&&s.o.type==='wall'&&p.sp>=200){s.o.dead=true;SFX.brk();continue}
+  if(p.on&&rise<=STEP)p.y=s.y-PH;else{p.x=p.dir>0?s.x-PW:s.x+s.w;blocked=true}}
+ ss=solids();
+ p.vy+=GRAV*dt;p.y+=p.vy*dt;p.on=false;p.ground=null;
+ for(const s of ss)if(hit(p,s)){
+  if(p.vy>=0){p.y=s.y-PH;p.vy=0;p.on=true;p.ground=s.o||null}else{p.y=s.y+s.h;p.vy=0}}
+ const g=p.ground;
+ if(g&&g.type==='jump'){p.vy=-JV;p.on=false;p.ground=null;SFX.jump()}
+ else if(g&&g.type==='vanish'&&g.vt==null)g.vt=0;
+ let bst=false;for(const o of G.placed)if(o.type==='boost'&&hit(p,{x:o.c*T,y:o.r*T+18,w:3*T,h:12}))bst=true;
+ if(bst)p.sp=Math.min(BOOST,p.sp+1500*dt);else if(p.on&&!(g&&g.type==='jump'))p.sp=Math.max(SPEED,p.sp-400*dt);
+ let wp=null;for(const o of G.placed)if(o.type==='warp'&&hit(p,{x:o.c*T,y:o.r*T,w:T,h:T}))wp=o;
+ if(wp&&wp!==p.lw){const q=G.placed.find(z=>z.type==='warp'&&z.k===wp.k&&z!==wp);if(q){p.x=q.c*T+(T-PW)/2;p.y=(q.r+1)*T-PH;p.vy=0;p.ground=null;p.lw=q;SFX.jump()}else p.lw=wp}else if(!wp)p.lw=null;
+ for(const o of G.placed)if(o.type==='switch'&&!o.used&&hit(p,{x:o.c*T,y:o.r*T+18,w:T,h:12})){o.used=true;for(const q of G.placed)if(q.type==='door'&&q.k===o.k)q.dead=true;SFX.place()}
+ for(const o of G.placed)if((o.type==='stop'||o.type==='rev')&&!o.used&&hit(p,{x:o.c*T,y:o.r*T+18,w:OBJ[o.type].w*T,h:12})){o.used=true;if(o.type==='stop'){p.wait=1;p.sp=SPEED;SFX.ng()}else{p.dir=-p.dir;SFX.move()}}
+ if(blocked)p.sp=SPEED;
+ const a0=Math.floor(p.anim*4);p.anim+=dt*p.sp/SPEED;if(p.on&&Math.floor(p.anim*4)!==a0&&SPD<2)SFX.step();
+ p.stuck=blocked?p.stuck+dt:0;
+ const gl={x:S.goal[0]*T,y:(S.goal[1]-1)*T,w:T,h:2*T};
+ if(hit(p,gl))return end(true);
+ if(p.y>ROWS*T+40)return end(false,'ステージ外へ落下しました');
+ if(p.stuck>1.2)return end(false,'進めなくなりました');
+ if(S.time&&G.t>S.time)end(false,'制限時間を超えました');
+}
+
+// ---- drawing ----
+function drawObj(o,a){
+ const d=OBJ[o.type];ctx.globalAlpha=a;ctx.fillStyle=d.col;
+ if(o.type==='stairs'){for(const t of tilesOf('stairs',o.c,o.r))ctx.fillRect(t[0]*T,t[1]*T,t[2]*T,t[3]*T)}
+ else if(o.type==='warp'){const x=o.c*T+15,y=o.r*T+15;ctx.strokeStyle=['#8b5cf6','#06b6d4','#10b981'][(o.k||1)-1];ctx.lineWidth=4;ctx.beginPath();ctx.ellipse(x,y,9,14,0,0,7);ctx.stroke();ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(x,y,4,8,0,0,7);ctx.stroke()}
+ else if(o.type==='door'){const x=o.c*T,y=o.r*T;ctx.fillStyle=KC[(o.k||1)-1];ctx.fillRect(x,y,T,2*T);ctx.fillStyle='rgba(0,0,0,.35)';ctx.fillRect(x+3,y+3,T-6,2*T-6);ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(x+T-9,y+T,3,0,7);ctx.fill()}
+ else if(o.type==='wall'){const x=o.c*T,y=o.r*T;ctx.fillStyle=d.col;ctx.fillRect(x,y,T,2*T);ctx.strokeStyle='rgba(0,0,0,.45)';ctx.lineWidth=1;ctx.beginPath();for(let k=1;k<4;k++){ctx.moveTo(x,y+k*15);ctx.lineTo(x+T,y+k*15)}ctx.moveTo(x+15,y);ctx.lineTo(x+15,y+15);ctx.moveTo(x+8,y+15);ctx.lineTo(x+8,y+30);ctx.moveTo(x+22,y+30);ctx.lineTo(x+22,y+45);ctx.stroke();ctx.fillStyle='#fff';ctx.font='bold 11px sans-serif';ctx.fillText('»',x+10,y+12)}
+ else if(PNL[o.type]){const x=o.c*T,y=o.r*T+16,w=d.w*T;ctx.fillStyle=o.k?KC[o.k-1]:d.col;ctx.fillRect(x,y,w,14);ctx.fillStyle='#14532d';ctx.fillRect(x,y-2,3,16);ctx.fillRect(x+w-3,y-2,3,16);ctx.fillStyle='#fff';ctx.font='bold 14px sans-serif';ctx.textAlign='center';ctx.fillText(o.type==='boost'&&FL()?'＜＜＜':d.lb,x+w/2,y+12);ctx.textAlign='left'}
+ else if(o.type==='jump'){const x=o.c*T;ctx.fillRect(x+2,o.r*T+16,T-4,14);ctx.fillStyle='#fff';ctx.fillRect(x+5,o.r*T+12,T-10,4);ctx.fillStyle=d.col;ctx.fillRect(x+9,o.r*T+8,T-18,4)}
+ else{const x=o.c*T+(o.ox||0);ctx.fillRect(x,o.r*T,d.w*T,T);ctx.fillStyle='rgba(255,255,255,.45)';ctx.fillRect(x,o.r*T,d.w*T,4);
+  if(o.type==='mover'){ctx.fillStyle='#fff';ctx.font='16px sans-serif';ctx.fillText('↔',x+d.w*T/2-8,o.r*T+21)}
+  if(o.type==='boost'){ctx.fillStyle='#fff';ctx.font='bold 18px sans-serif';ctx.fillText('»»»',x+d.w*T/2-15,o.r*T+22)}}
+ ctx.globalAlpha=1;
+}
+function drawPict(p,run){
+ const x=p.x+PW/2,y=p.y,w=run&&p.on?Math.sin(p.anim*12):0,air=!p.on&&run;
+ ctx.strokeStyle=ctx.fillStyle='#111827';ctx.lineWidth=3;ctx.lineCap='round';
+ ctx.beginPath();ctx.arc(x,y+5,4.5,0,7);ctx.fill();
+ ctx.beginPath();ctx.moveTo(x,y+10);ctx.lineTo(x,y+18);
+ ctx.moveTo(x,y+12);ctx.lineTo(x-(air?6:5*w),y+(air?7:18));
+ ctx.moveTo(x,y+12);ctx.lineTo(x+(air?6:5*w),y+(air?7:18));
+ ctx.moveTo(x,y+18);ctx.lineTo(x-(air?5:6*w),y+PH);
+ ctx.moveTo(x,y+18);ctx.lineTo(x+(air?5:6*w),y+PH);ctx.stroke();
+}
+function draw(){
+ const gr=ctx.createLinearGradient(0,0,0,540);gr.addColorStop(0,'#bae6fd');gr.addColorStop(1,'#f0f9ff');
+ ctx.fillStyle=gr;ctx.fillRect(0,0,960,540);
+ if(G.mode==='build'){ctx.strokeStyle='rgba(15,23,42,.07)';ctx.lineWidth=1;ctx.beginPath();
+  for(let i=1;i<COLS;i++){ctx.moveTo(i*T,0);ctx.lineTo(i*T,540)}for(let j=1;j<ROWS;j++){ctx.moveTo(0,j*T);ctx.lineTo(960,j*T)}ctx.stroke()}
+ for(const s of S.solids){ctx.fillStyle='#475569';ctx.fillRect(s[0]*T,s[1]*T,s[2]*T,s[3]*T);ctx.fillStyle='#22c55e';ctx.fillRect(s[0]*T,s[1]*T,s[2]*T,6)}
+ // start / goal
+ const sx=S.start[0]*T,sy=(S.start[1]+1)*T;
+ ctx.fillStyle='rgba(37,99,235,.25)';ctx.fillRect(sx,S.start[1]*T,T,T);ctx.fillStyle='#1d4ed8';ctx.font='bold 12px sans-serif';ctx.fillText('START',sx-4,sy-34);
+ const gx=S.goal[0]*T,gy=S.goal[1]*T;
+ ctx.fillStyle='#64748b';ctx.fillRect(gx+10,gy-T,3,2*T);ctx.fillStyle='#16a34a';ctx.beginPath();ctx.moveTo(gx+13,gy-T);ctx.lineTo(gx+34,gy-T+9);ctx.lineTo(gx+13,gy-T+18);ctx.fill();
+ ctx.fillStyle='#15803d';ctx.fillText('GOAL',gx-2,gy-T-6);
+ for(const o of G.placed){
+  if(o.dead)continue;
+  if(o.type==='mover'&&G.mode==='build'){ctx.fillStyle='rgba(14,165,233,.15)';ctx.fillRect(o.c*T,o.r*T,(OBJ.mover.w+OBJ.mover.range)*T,T)}
+  let a=o.used&&o.type==='switch'?.35:1;if(o.type==='vanish'&&G.mode==='run'){const ph=vph(o);if(ph>1.0)a=.55+.4*Math.cos(ph*28)}
+  if(o.hid){ctx.strokeStyle='rgba(124,58,237,.6)';ctx.strokeRect(o.c*T+.5,o.r*T+.5,OBJ[o.type].w*T-1,T-1)}else if(!(o.used&&(o.type==='rev'||o.type==='stop')))drawObj(o,a)}
+ drawPict(G.p,G.mode==='run'||G.mode==='fail'||G.mode==='clear');
+ if(G.mode==='build'&&G.hover&&!G.remove&&G.sel){
+  const[c,r]=anchor(G.hover[0],G.hover[1]),why=canPlace(G.sel,c,r);
+  drawObj({type:G.sel,c,r,ox:0},.65);
+  ctx.fillStyle=why?'rgba(220,38,38,.35)':'rgba(34,197,94,.3)';
+  for(const t of tilesOf(G.sel,c,r))ctx.fillRect(t[0]*T,t[1]*T,t[2]*T,t[3]*T);
+  setMsg(why?'⚠ '+why:'クリックで配置（右クリック／撤去ボタンで撤去）');
+ }
+ if(G.mode==='build'&&G.hover&&G.remove){ctx.fillStyle='rgba(220,38,38,.3)';ctx.fillRect(G.hover[0]*T,G.hover[1]*T,T,T)}
+}
+function hud(){
+ let s=`創造ポイント ${G.cp}/${S.cp}`;
+ if(S.vt)s+='　消える足場 '+S.vt+'秒';if(S.time)s+=`　残り ${Math.max(0,S.time-G.t).toFixed(1)}s`;
+ $('hud').textContent=s;
+}
+let last=0,SPD=1;
+function loop(ts){
+ const dt=Math.min((ts-last)/1000,.05);last=ts;
+ if(G&&$('game').classList.contains('on')){for(let i=0;i<2*SPD;i++)update(dt/2);draw();hud()}
+ requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ---- UI wiring ----
+function toSelect(){
+ const g=$('grid');g.innerHTML='';
+ STAGES.forEach((s,i)=>{const b=document.createElement('button');
+  b.innerHTML=`<b>${i+1}</b> ${s.name}<small>${cleared[i]?'✓ クリア済み':'未クリア'}</small>`;
+  b.onclick=()=>{ac();openStage(i)};g.appendChild(b)});
+ show('select');
+}
+$('start').onclick=()=>{ac();toSelect()};
+$('selBack').onclick=()=>show('title');
+$('back').onclick=toSelect;
+$('retry').onclick=()=>openStage(G.idx);
+$('go').onclick=()=>{
+ ac();
+ if(G.mode==='build'){G.mode='run';$('go').textContent='■ 停止';setMsg('')}
+ else if(G.mode==='run'){resetRun();setMsg('配置は残っています。調整して再開始できます')}
+};
+$('spd').onclick=()=>{SPD=SPD%3+1;$('spd').textContent='⏩ 倍速 ×'+SPD};
+$('mute').onclick=()=>{muted=!muted;$('mute').textContent=muted?'🔇 音':'🔊 音'};
+$('theme').onclick=()=>{const r=document.documentElement;const dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;r.dataset.theme=dark?'light':'dark'};
+</script>
+</body></html>
